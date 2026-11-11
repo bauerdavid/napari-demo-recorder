@@ -78,10 +78,23 @@ jobs:
             **/*.mp4
           if-no-files-found: ignore
       - name: Pull request
+        id: pr
         if: inputs.open-pr
+        # New repositories do not allow Actions to open pull requests. Do not fail the run for
+        # that: the files are already in the artifact and on the branch; explain the fix instead.
+        continue-on-error: true
         uses: peter-evans/create-pull-request@v7
         with:
           branch: ${{ inputs.branch }}
           commit-message: Re-render demo GIFs
           title: Re-render demo GIFs
           body: Rendered by [napari-demo-recorder](https://github.com/bauerdavid/napari-demo-recorder) from the `*.demo.yaml` files.
+      - name: Explain why no pull request was opened
+        if: inputs.open-pr && steps.pr.outcome == 'failure'
+        env:
+          BRANCH: ${{ inputs.branch }}
+        run: |
+          msg="Could not open a pull request. If the log above says 'GitHub Actions is not permitted to create or approve pull requests', enable Settings > Actions > General > Workflow permissions > 'Allow GitHub Actions to create and approve pull requests'. The rendered files are in the 'demos' artifact and (if it was pushed) on branch '$BRANCH'."
+          echo "::warning title=Demo GIFs rendered, but no pull request::$msg"
+          echo "### Demo GIFs rendered, but no pull request was opened" >> "$GITHUB_STEP_SUMMARY"
+          echo "$msg" >> "$GITHUB_STEP_SUMMARY"
