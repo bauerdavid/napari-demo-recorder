@@ -237,6 +237,8 @@ def _adapter(p: Player) -> NapariAdapter:
     params={"plugin": {"type": "string"}, "sample": {"type": "string"}},
     required=["plugin", "sample"],
     shorthand=["plugin", "sample"],
+    direct=True,
+    effect_label="sample opened",
 )
 def open_sample(p: Player, params: dict):
     """Open a sample (``viewer.open_sample(plugin, sample)``), e.g. [napari, cells3d]."""
@@ -250,6 +252,8 @@ def open_sample(p: Player, params: dict):
     params={"path": {"type": "string"}, "plugin": {"type": "string"}, "layer_type": {"type": "string"}},
     required=["path"],
     shorthand="path",
+    direct=True,
+    effect_label="file opened",
 )
 def open_file(p: Player, params: dict):
     """Open a file (relative to the demo file) with ``viewer.open``."""
@@ -272,6 +276,8 @@ def open_file(p: Player, params: dict):
     },
     required=["plugin"],
     shorthand=["plugin", "widget"],
+    direct=True,
+    effect_label="plugin opened",
 )
 def open_plugin(p: Player, params: dict):
     """Open a plugin's dock widget, e.g. [napari-nD-annotator, Annotation Toolbox]."""
@@ -368,7 +374,8 @@ def toggle_visibility(p: Player, params: dict):
     top_left, size, eye = _layer_row_rect(p, params["layer"])
     pt = eye if eye is not None else top_left + QPoint(min(size.height() // 2 + 2, 20), size.height() // 2)
     yield from p.click(pt)
-    if layer is not None and layer.visible == before:  # delegate geometry differs: do it directly
+    if layer is not None and layer.visible == before:
+        p.direct_change(f"toggle_visibility: clicking the eye icon of {params['layer']!r} did not toggle it")
         layer.visible = not before
         yield
 
@@ -392,7 +399,6 @@ def dims(p: Player, params: dict):
     if slider is None:
         raise DemoError(f"dims: no visible slider for axis {params['axis']}")
     yield from _set_slider(p, slider, params["value"], None)
-    _adapter(p).viewer.dims.set_current_step(params["axis"], params["value"])
 
 
 @N.step(
@@ -404,9 +410,15 @@ def dims(p: Player, params: dict):
         "ndisplay": {"enum": [2, 3]},
         "reset": {"type": "boolean", "description": "Reset the view first (like the Home button)."},
     },
+    direct=True,
+    effect_label="view changed",
 )
 def camera(p: Player, params: dict):
-    """Animate the camera (zoom / center / angles) over ``duration`` (default 1 s)."""
+    """Set the camera directly (zoom / center / angles), animated over ``duration``.
+
+    This is not user input: in strict demos it needs ``effect:`` (and is marked in the GIF).
+    Prefer ``zoom``, ``pan`` and ``rotate``, which use the mouse like a person would.
+    """
     from ..core.player import ease
 
     viewer = _adapter(p).viewer
@@ -434,3 +446,125 @@ def camera(p: Player, params: dict):
         if "angles" in params:
             cam.angles = tuple(start["angles"] + (end["angles"] - start["angles"]) * u)
         yield
+
+
+# ------------------------------------------------------------------------------ input-based camera
+
+
+def _canvas_center(p: Player) -> QPoint:
+    canvas = _adapter(p).canvas_widget()
+    if canvas is None:
+        raise DemoError("napari canvas not found")
+    return window_rect(p.window, canvas).center()
+
+
+def _canvas_target(p: Player, params: dict) -> QPoint:
+    if "canvas" in params:
+        return _adapter(p).canvas_points(p, [params["canvas"]], params)[0]
+    return _canvas_center(p)
+
+
+class _PanZoomDrag:
+    """Hold Space while dragging if the selected layer is not in pan/zoom mode (napari's own
+    "hold Space to pan" shortcut), so a drag moves the camera instead of painting."""
+
+    def __init__(self, p: Player):
+        self.p = p
+        layer = _adapter(p).viewer.layers.selection.active
+        self.needed = layer is not None and str(getattr(layer, "mode", "pan_zoom")) not in ("pan_zoom", "pan")
+
+    def __enter__(self):
+        if self.needed:
+            self.p.show_keys("Space + drag")
+            self.p.input.key_press("Space")
+        return self
+
+    def __exit__(self, *exc):
+        if self.needed:
+            self.p.input.key_release("Space")
+
+
+@N.step(
+    "zoom",
+    params={
+        "factor": {"type": "number", "exclusiveMinimum": 0, "description": "e.g. 2 = twice as large; 0.5 = zoom out."},
+    },
+    targets=True,
+    required=["factor"],
+    shorthand="factor",
+)
+def zoom(p: Player, params: dict):
+    """Zoom with the mouse wheel (over ``canvas:`` point, default: canvas centre)."""
+    import math
+
+    cam = _adapter(p).viewer.camera
+    target = float(cam.zoom) * float(params["factor"])
+    yield from p.move_to(_canvas_target(p, params))
+    yield from p.seconds(0.1)
+    direction = 1 if params["factor"] >= 1 else -1
+    for _ in range(60):
+        if abs(math.log(float(cam.zoom) / target)) < 1e-9:
+            break
+        before = float(cam.zoom)
+        p.input.wheel(direction)
+        yield from p.seconds(0.07)
+        after = float(cam.zoom)
+        if after == before:
+            p.direct_change("zoom: the mouse wheel did not zoom the canvas")
+            cam.zoom = target
+            break
+        # stop at the notch closest to the target
+        if (direction > 0 and after >= target) or (direction < 0 and after <= target):
+            if abs(math.log(before / target)) < abs(math.log(after / target)):
+                p.input.wheel(-direction)  # one notch back, like a person overshooting
+                yield from p.seconds(0.07)
+            break
+    yield from p.seconds(0.3)
+
+
+@N.step(
+    "pan",
+    params={
+        "from": {"description": "Data point to grab (default: canvas centre).", "type": "array", "items": {"type": "number"}},
+        "to": {"description": "Data point whose current screen position it is dragged to.", "type": "array", "items": {"type": "number"}},
+        "layer": {"type": "string"},
+    },
+    required=["to"],
+)
+def pan(p: Player, params: dict):
+    """Drag the view: the data point ``from`` ends up where ``to`` is now (both in data coords)."""
+    import numpy as np
+
+    a = _adapter(p)
+    canvas_params = {k: params[k] for k in ("layer",) if k in params}
+    start = (a.canvas_points(p, [params["from"]], {"canvas": params["from"], **canvas_params})[0]
+             if "from" in params else _canvas_center(p))  # fmt: skip
+    end = a.canvas_points(p, [params["to"]], {"canvas": params["to"], **canvas_params})[0]
+    before = np.asarray(a.viewer.camera.center, float).copy()
+    with _PanZoomDrag(p):
+        yield from p.drag([start, end])
+    if np.allclose(np.asarray(a.viewer.camera.center, float), before) and (start - end).manhattanLength() > 2:
+        p.direct_change("pan: dragging the canvas did not move the view")
+
+
+@N.step(
+    "rotate",
+    params={"by": {"description": "Mouse drag [dx, dy] in screen pixels.", "type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 2}},
+    targets=True,
+    required=["by"],
+    shorthand="by",
+)
+def rotate(p: Player, params: dict):
+    """Rotate the 3D view by dragging the canvas (napari must be in 3D, e.g. click 'Toggle 3D')."""
+    import numpy as np
+
+    a = _adapter(p)
+    if a.viewer.dims.ndisplay != 3:
+        raise DemoError("rotate: the viewer is in 2D; switch to 3D first (e.g. click: Toggle 3D)")
+    start = _canvas_target(p, params)
+    end = start + QPoint(round(params["by"][0]), round(params["by"][1]))
+    before = np.asarray(a.viewer.camera.angles, float).copy()
+    with _PanZoomDrag(p):
+        yield from p.drag([start, end])
+    if np.allclose(np.asarray(a.viewer.camera.angles, float), before):
+        p.direct_change("rotate: dragging the canvas did not rotate the view")

@@ -90,6 +90,14 @@ TOP_LEVEL_PROPS: dict[str, dict] = {
         },
         "additionalProperties": False,
     },
+    "interaction": {
+        "enum": ["strict", "relaxed"],
+        "description": (
+            "strict (default): during 'steps' the app may only change through simulated input "
+            "(clicks, drags, keys); direct changes need 'effect:' on the step. relaxed: direct "
+            "changes are allowed. Either way they are marked in the GIF."
+        ),
+    },
     "speed": {"type": "number", "exclusiveMinimum": 0},
     "seed": {"type": "integer"},
     "setup": {"type": "array"},
@@ -166,6 +174,10 @@ class DemoSpec:
     def app_name(self) -> str:
         app = self.app
         return app.get("name") or ("qt" if "factory" in app else "napari")
+
+    @property
+    def strict(self) -> bool:
+        return self.data.get("interaction", "strict") == "strict"
 
     @property
     def output(self) -> dict[str, Any]:
@@ -304,9 +316,31 @@ def parse_demo(data: dict, registry: StepRegistry | None = None, path: Path | No
         registry = registry_for(spec.app_name)
     spec.setup = [normalize_step(s, registry, f"{loc}: setup[{i}]") for i, s in enumerate(data.get("setup") or [])]
     spec.steps = [normalize_step(s, registry, f"{loc}: steps[{i}]") for i, s in enumerate(data.get("steps") or [])]
+    if spec.strict:
+        for step in spec.steps:
+            if registry[step.name].direct and not step.params.get("effect"):
+                raise DemoError(
+                    f"'{step.name}' changes the app without visible input, which a viewer could "
+                    "not reproduce. Move it to 'setup', use an input-based step"
+                    f"{_input_alternative(step.name)}, or mark it with 'effect: <what happened>' "
+                    "(shown in the GIF). 'interaction: relaxed' allows it for the whole demo.",
+                    location=step.location,
+                )
     if "output" in data:
         parse_size(data["output"].get("max_size"))
     return spec
+
+
+_ALTERNATIVES = {
+    "camera": " (zoom, pan, rotate)",
+    "open_sample": " (menu: [File, Open Sample, ...])",
+    "open_plugin": " (menu: [Plugins, ...])",
+    "open_file": " (menu: [File, ...])",
+}
+
+
+def _input_alternative(name: str) -> str:
+    return _ALTERNATIVES.get(name, "")
 
 
 def load_demo(path: str | Path, registry: StepRegistry | None = None) -> DemoSpec:
@@ -334,7 +368,7 @@ def dump_demo(data: dict, registry: StepRegistry | None = None) -> str:
     from .adapter import registry_for
 
     out = CommentedMap()
-    for key in ["demo", "title", "app", "window", "output", "style", "speed", "seed"]:
+    for key in ["demo", "title", "app", "interaction", "window", "output", "style", "speed", "seed"]:
         if key in data and data[key] is not None:
             val = data[key]
             out[key] = _flow(val) if isinstance(val, dict | list) else val

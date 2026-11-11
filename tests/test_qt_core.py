@@ -82,14 +82,14 @@ def test_render_writes_gif(qapp, examples, tmp_path):
 
 
 def test_python_steps_can_be_disabled(qapp, examples):
-    spec = parse_demo(load_raw("demo: 1\napp: {factory: 'qt_app:make_window'}\nsteps:\n  - python: 'x = 1'\n"), path=examples / "x.yaml")
+    spec = parse_demo(load_raw("demo: 1\napp: {factory: 'qt_app:make_window'}\nsetup:\n  - python: 'x = 1'\nsteps: []\n"), path=examples / "x.yaml")
     with pytest.raises(DemoError, match="disabled"):
         Player(spec, mode="run", allow_python=False, log=None).run()
 
 
 def test_python_step_namespace(qapp, examples):
     spec = parse_demo(
-        load_raw("demo: 1\napp: {factory: 'qt_app:make_window'}\nsteps:\n  - python: 'root.title_edit.setText(\"from python\")'\n"),
+        load_raw("demo: 1\napp: {factory: 'qt_app:make_window'}\nsetup:\n  - python: 'root.title_edit.setText(\"from python\")'\nsteps: []\n"),
         path=examples / "x.yaml",
     )
     p = Player(spec, mode="run", log=None)
@@ -106,3 +106,59 @@ def test_frame_store_dedupes_static_frames(qapp, examples, tmp_path):
     assert p.store.duration == pytest.approx(2 + 1.2 + 2 / 15, abs=0.2)
     p.adapter.close()
     assert np.asarray(p.store.last()).ndim == 3
+
+
+QT = "demo: 1\napp: {factory: 'qt_app:make_window'}\n"
+
+
+def _qt_spec(examples, text):
+    return parse_demo(load_raw(QT + text), path=examples / "x.yaml")
+
+
+def test_marked_effect_is_drawn_and_held(qapp, examples, tmp_path):
+    spec = _qt_spec(examples, "steps:\n  - python: {code: 'root.title_edit.setText(\"x\")', effect: title set by code}\n")
+    p = Player(spec, log=None)
+    p.start()
+    p.capturing = True
+    t0 = p.t
+    p.run_step(spec.steps[0])
+    assert p.t - t0 >= 1.2 - 1e-6  # an instant change still stays on screen long enough to read
+    badge = [e for e in p.overlay.effects if e.text == "title set by code"]
+    assert badge and badge[0].t1 is not None
+    with_marker = compose_frame(p.window, p.overlay, badge[0].t0 + 0.5).astype(int)
+    p.overlay.effects.clear()
+    without = compose_frame(p.window, p.overlay, badge[0].t0 + 0.5).astype(int)
+    corner = np.abs(with_marker[15:55, 15:200] - without[15:55, 15:200]).sum(-1)
+    assert (corner > 60).mean() > 0.3  # the marker pill covers the top-left corner
+    p.adapter.close()
+
+
+def test_relaxed_marks_direct_steps_with_default_label(qapp, examples):
+    spec = _qt_spec(examples, "interaction: relaxed\nsteps:\n  - python: 'x = 1'\n")
+    p = Player(spec, mode="run", log=None)
+    p.run(close=False)
+    assert [e.text for e in p.overlay.effects] == ["code ran"]
+    p.adapter.close()
+
+
+def test_failed_interaction_is_an_error_in_strict_mode(qapp, examples):
+    # the field only accepts digits: typing letters cannot produce the value
+    setup = "setup:\n  - python: 'from qtpy.QtGui import QIntValidator; root.title_edit.setValidator(QIntValidator())'\n"
+    spec = _qt_spec(examples, setup + "steps:\n  - set: {widget: Title, value: hello}\n")
+    with pytest.raises(DemoError, match=r"steps\[0\].*typing 'hello'.*strict mode"):
+        Player(spec, mode="run", log=None).run()
+    # marked: allowed, and visibly marked
+    spec = _qt_spec(examples, setup + "steps:\n  - set: {widget: Title, value: hello, effect: title forced}\n")
+    p = Player(spec, mode="run", log=None)
+    p.run(close=False)
+    assert p.window.title_edit.text() == "hello"
+    assert [e.text for e in p.overlay.effects] == ["title forced"]
+    p.adapter.close()
+
+
+def test_slider_reaches_value_by_dragging(player):
+    from napari_demo_recorder.core.format import Step
+
+    player.run_step(Step("set", {"widget": "Brush size", "value": 27}))
+    assert player.window.size_slider.value() == 27
+    assert not player.overlay.effects  # no direct change was needed

@@ -29,6 +29,6 @@ steps:
   - caption: "Layer list, menus and the camera, too"
   - toggle_visibility: blobs found
   - menu: [View, Scale Bar, [Toggle Scale Bar, Scale Bar Visible]]   # napari >= 0.6 / 0.5
-  - camera: {zoom: 4.5, center: [70, 120], duration: 1.2}
+  - zoom: {factor: 2, canvas: [70, 120], layer: blobs}   # mouse wheel over the region
   - caption: "Re-rendered in CI whenever your UI changes"
   - hold: 1.5
