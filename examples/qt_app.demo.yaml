@@ -1,0 +1,16 @@
+# A demo of a plain Qt app (no napari) - render with:
+#   napari-demo-recorder render examples/qt_app.demo.yaml
+demo: 1
+app: {factory: "qt_app:make_window"}
+window: {size: [900, 560]}
+output: {path: qt_app.gif, fps: 12, scale: 0.8}
+steps:
+  - caption: Any Qt app works - here a tiny sketchpad
+  - drag: {widget: sketch, path: [[0.15, 0.3], [0.3, 0.6], [0.45, 0.3], [0.6, 0.6]]}
+  - set: {widget: Color, value: Orange}
+  - set: {widget: Brush size, value: 18}
+  - drag: {widget: sketch, path: [[0.2, 0.75], [0.6, 0.8]]}
+  - click: {button: Mirror strokes, highlight: true}
+  - menu: [File, Export, As PNG]
+  - type: {widget: Title, text: My sketch, enter: true}
+  - caption: ""

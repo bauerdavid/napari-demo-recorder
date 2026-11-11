@@ -1,0 +1,76 @@
+[build-system]
+requires = ["setuptools>=64", "setuptools-scm>=8"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "napari-demo-recorder"
+dynamic = ["version"]
+description = "Scripted, re-renderable demo GIFs of napari (and any Qt app) for tutorials and READMEs"
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [{ name = "David Bauer" }]
+requires-python = ">=3.10"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Framework :: napari",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: BSD License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Multimedia :: Graphics :: Capture :: Screen Capture",
+    "Topic :: Scientific/Engineering :: Image Processing",
+]
+dependencies = [
+    "numpy",
+    "qtpy",
+    "Pillow>=9.1",
+    "ruamel.yaml>=0.17",
+    "jsonschema>=4",
+]
+
+[project.optional-dependencies]
+napari = ["napari>=0.5", "magicgui"]
+mp4 = ["imageio-ffmpeg"]
+testing = [
+    "pytest",
+    "pytest-qt",
+    "pytest-cov",
+    "napari>=0.5",
+    "magicgui",
+]
+
+[project.scripts]
+napari-demo-recorder = "napari_demo_recorder.cli:main"
+
+[project.entry-points."napari.manifest"]
+napari-demo-recorder = "napari_demo_recorder:napari.yaml"
+
+[project.urls]
+"Bug Tracker" = "https://github.com/bauerdavid/napari-demo-recorder/issues"
+"Source Code" = "https://github.com/bauerdavid/napari-demo-recorder"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"*" = ["*.yaml", "*.json"]
+
+[tool.setuptools_scm]
+fallback_version = "0.1.0.dev0"
+version_file = "src/napari_demo_recorder/_version.py"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.ruff]
+line-length = 99
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+ignore = ["E501", "B905"]

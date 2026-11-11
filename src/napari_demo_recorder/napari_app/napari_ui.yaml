@@ -1,0 +1,217 @@
+# Stable names for napari's own UI.
+#
+# Each element is found by the first `find` entry that matches a visible widget.  Prefer
+# stable identifiers (the `mode` property of napari's buttons) and keep tooltip-based fallbacks
+# for other napari versions.  tests/test_napari_catalogue.py checks that every element resolves
+# on the napari versions in CI.
+
+parents:
+  napari:                     # napari's built-in UI: everything except plugin docks
+    window: true
+    docks: [layer controls, layer list, console]
+  layer_buttons: {class: [QtLayerButtons], aliases: [layer buttons]}
+  viewer_buttons: {class: [QtViewerButtons], aliases: [viewer buttons]}
+  layer_controls: {class: [QtLayerControlsContainer], aliases: [layer controls]}
+  layer_list: {class: [QtLayerList], aliases: [layer list, layers]}
+  dims: {class: [QtDims], aliases: [dims sliders, sliders]}
+  canvas: {class: [CanvasBackendDesktop, CanvasBackendEGL]}
+  menubar: {class: [QMenuBar], aliases: [menu bar, menu]}
+  status_bar: {class: [QStatusBar], aliases: [status bar]}
+
+elements:
+  # ---------------------------------------------------------------- layer buttons
+  - id: new_points_layer
+    parent: layer_buttons
+    aliases: [Create Points, New Points, New points layer, Create points layer, Add points layer, New Points Layer]
+    find:
+      - {property: {mode: new_points}}
+      - {tooltip_startswith: [New points layer, Create a new points layer]}
+  - id: new_shapes_layer
+    parent: layer_buttons
+    aliases: [Create Shapes, New Shapes, New shapes layer, Create shapes layer, Add shapes layer]
+    find:
+      - {property: {mode: new_shapes}}
+      - {tooltip_startswith: [New shapes layer, Create a new shapes layer]}
+  - id: new_labels_layer
+    parent: layer_buttons
+    aliases: [Create Labels, New Labels, New labels layer, Create labels layer, Add labels layer]
+    find:
+      - {property: {mode: new_labels}}
+      - {tooltip_startswith: [New labels layer, Create a new labels layer]}
+  - id: delete_layers
+    parent: layer_buttons
+    aliases: [Delete, Delete layer, Delete layers, Delete selected layers, Remove layer, Trash]
+    find:
+      - {property: {mode: delete_button}}
+      - {tooltip_startswith: [Delete selected layers]}
+
+  # ---------------------------------------------------------------- viewer buttons
+  - id: console
+    parent: viewer_buttons
+    aliases: [Console, Toggle console, IPython console, Show console]
+    find:
+      - {property: {mode: console}}
+      - {tooltip_startswith: [Show/Hide IPython console, Open IPython terminal]}
+  - id: toggle_ndisplay
+    parent: viewer_buttons
+    aliases: [2D/3D, Toggle 2D/3D, Toggle 3D, 3D view, 3D, ndisplay, Toggle ndisplay]
+    find:
+      - {property: {mode: ndisplay_button}}
+      - {tooltip_startswith: [Toggle number of displayed dimensions, Toggle 2D/3D view]}
+  - id: roll_axes
+    parent: viewer_buttons
+    aliases: [Roll, Roll axes, Roll dimensions]
+    find:
+      - {property: {mode: roll}}
+      - {tooltip_startswith: [Roll dimensions order, Change order of the visible axes]}
+  - id: transpose_axes
+    parent: viewer_buttons
+    aliases: [Transpose, Transpose axes, Transpose dimensions]
+    find:
+      - {property: {mode: transpose}}
+      - {tooltip_startswith: [Transpose displayed dimensions, Transpose order of the last two visible axes]}
+  - id: toggle_grid
+    parent: viewer_buttons
+    aliases: [Grid, Grid mode, Grid view, Toggle grid, Toggle grid mode]
+    find:
+      - {property: {mode: grid_view_button}}
+      - {tooltip_startswith: [Toggle grid view, Toggle grid mode]}
+  - id: reset_view
+    parent: viewer_buttons
+    aliases: [Home, Reset view, Reset camera]
+    find:
+      - {property: {mode: home}}
+      - {tooltip_startswith: [Reset view]}
+
+  # ---------------------------------------------------------------- layer modes (layer controls)
+  - id: pan_zoom
+    parent: layer_controls
+    aliases: [Pan/zoom, Pan zoom, Pan, Move camera, Pan/zoom mode]
+    find:
+      - {property: {mode: [pan_zoom, pan]}}
+      - {tooltip_startswith: [Pan/zoom, Move camera]}
+  - id: transform
+    parent: layer_controls
+    aliases: [Transform, Transform mode]
+    find:
+      - {property: {mode: transform}}
+  - id: paint
+    parent: layer_controls
+    aliases: [Paint, Paint brush, Brush, Paint mode]
+    find:
+      - {property: {mode: paint}}
+      - {tooltip_startswith: [Paint mode, Activate the paint brush]}
+  - id: erase
+    parent: layer_controls
+    aliases: [Erase, Eraser, Erase mode, Label eraser]
+    find:
+      - {property: {mode: erase}}
+      - {tooltip_startswith: [Erase mode, Activate the label eraser]}
+  - id: fill
+    parent: layer_controls
+    aliases: [Fill, Fill bucket, Bucket, Fill mode]
+    find:
+      - {property: {mode: fill}}
+      - {tooltip_startswith: [Fill mode, Activate the fill bucket]}
+  - id: pick
+    parent: layer_controls
+    aliases: [Pick, Picker, Pick mode, Color picker, Label picker]
+    find:
+      - {property: {mode: picker}}
+      - {tooltip_startswith: [Pick mode]}
+  - id: labels_polygon
+    parent: layer_controls
+    aliases: [Polygon tool, Labels polygon]
+    find:
+      - {property: {mode: labels_polygon}}
+  - id: shuffle_colors
+    parent: layer_controls
+    aliases: [Shuffle, Shuffle colors]
+    find:
+      - {property: {mode: shuffle}}
+      - {tooltip_startswith: [Shuffle colors]}
+  - id: add_points
+    parent: layer_controls
+    aliases: [Add points, Add point, Add points mode]
+    find:
+      - {property: {mode: [add_points, add]}}
+      - {tooltip_startswith: [Add points]}
+  - id: select
+    parent: layer_controls
+    aliases: [Select, Select points, Select shapes, Select mode]
+    find:
+      - {property: {mode: [select, select_points]}}
+      - {tooltip_startswith: [Select points, Select shapes]}
+  - id: direct_select
+    parent: layer_controls
+    aliases: [Select vertices, Direct select]
+    find:
+      - {property: {mode: direct}}
+      - {tooltip_startswith: [Select vertices]}
+  - id: add_rectangle
+    parent: layer_controls
+    aliases: [Rectangle, Add rectangles, Add rectangle]
+    find:
+      - {property: {mode: [rectangle, add_rectangle]}}
+      - {tooltip: [Add rectangles]}
+  - id: add_ellipse
+    parent: layer_controls
+    aliases: [Ellipse, Add ellipses, Add ellipse]
+    find:
+      - {property: {mode: [ellipse, add_ellipse]}}
+      - {tooltip: [Add ellipses]}
+  - id: add_line
+    parent: layer_controls
+    aliases: [Line, Add lines, Add line]
+    find:
+      - {property: {mode: [line, add_line]}}
+      - {tooltip: [Add lines]}
+  - id: add_polyline
+    parent: layer_controls
+    aliases: [Polyline, Add polylines, Add polyline]
+    find:
+      - {property: {mode: [polyline, add_polyline]}}
+      - {tooltip: [Add polylines]}
+  - id: add_path
+    parent: layer_controls
+    aliases: [Path, Add path, Add paths]
+    find:
+      - {property: {mode: [path, add_path]}}
+      - {tooltip: [Add path]}
+  - id: add_polygon
+    parent: layer_controls
+    aliases: [Polygon, Add polygons, Add polygon]
+    find:
+      - {property: {mode: [polygon, add_polygon]}}
+      - {tooltip: [Add polygons]}
+  - id: insert_vertex
+    parent: layer_controls
+    aliases: [Insert vertex, Insert vertices]
+    find:
+      - {property: {mode: vertex_insert}}
+  - id: remove_vertex
+    parent: layer_controls
+    aliases: [Remove vertex, Remove vertices]
+    find:
+      - {property: {mode: vertex_remove}}
+  - id: polygon_lasso
+    parent: layer_controls
+    aliases: [Polygon lasso, Add polygons lasso, Lasso]
+    find:
+      - {property: {mode: polygon_lasso}}
+  - id: delete_selected
+    parent: layer_controls
+    aliases: [Delete selected shapes, Delete selected points, Delete selected]
+    find:
+      - {property: {mode: delete_shape}}
+      - {tooltip_startswith: [Delete selected shapes, Delete selected points]}
+  - id: move_to_front
+    parent: layer_controls
+    aliases: [Move to front, Bring to front]
+    find:
+      - {property: {mode: move_front}}
+  - id: move_to_back
+    parent: layer_controls
+    aliases: [Move to back, Send to back]
+    find:
+      - {property: {mode: move_back}}

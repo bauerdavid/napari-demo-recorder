@@ -1,0 +1,19 @@
+# Re-render this repository's own showcase GIF (uses the reusable workflow).
+name: demos
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ["src/**", "examples/**"]
+
+jobs:
+  render:
+    uses: ./.github/workflows/render-demos.yml
+    with:
+      demos: examples/showcase.demo.yaml
+      install: ".[napari] scipy"
+      recorder: ""
+    permissions:
+      contents: write
+      pull-requests: write
