@@ -164,7 +164,11 @@ jobs:
       pull-requests: write
 ```
 
-It renders on Xvfb and opens a pull request with the updated GIFs.
+It renders on Xvfb and opens a pull request with the updated GIFs. For the pull request, enable
+*Settings → Actions → General → Workflow permissions → Allow GitHub Actions to create and approve
+pull requests* in your repository (it is off by default). Without it, the run still succeeds and
+the GIFs are available as the `demos` artifact and on the `update-demo-gifs` branch, with a warning
+that explains the setting.
 
 ## Other Qt apps
 
