@@ -1,0 +1,10 @@
+name: napari-demo-recorder
+display_name: Demo Recorder
+contributions:
+  commands:
+    - id: napari-demo-recorder.recorder_widget
+      python_name: napari_demo_recorder.napari_app._widget:DemoRecorderWidget
+      title: Demo recorder
+  widgets:
+    - command: napari-demo-recorder.recorder_widget
+      display_name: Demo recorder
