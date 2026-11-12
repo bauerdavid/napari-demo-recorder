@@ -87,6 +87,10 @@ TOP_LEVEL_PROPS: dict[str, dict] = {
             "caption_position": {"enum": ["top", "bottom"]},
             "caption_size": {"type": "number"},
             "keys_position": {"enum": ["bottom-left", "bottom-right", "bottom", "top-left", "top-right"]},
+            "palette": {
+                "enum": ["accent", "warm", "cyan-magenta", "green", "white", "black-yellow"],
+                "description": "Colours of arrows, step circles and boxes (accent: use 'accent').",
+            },
         },
         "additionalProperties": False,
     },

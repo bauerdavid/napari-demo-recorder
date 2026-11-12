@@ -239,3 +239,17 @@ def test_pan_holds_space_in_paint_mode(qapp):
     assert np.count_nonzero(v.layers["Labels"].data) == 0  # panned, did not paint
     assert any("Space" in k for k, _ in p.overlay.keys) or p.overlay.keys == []
     p.adapter.close()
+
+
+def test_canvas_box_follows_the_camera(qapp):
+    p = make_player(setup="[{python: 'viewer.add_image(np.random.rand(64, 64), name=\"img\")'}]")
+    p.run(close=False)
+    p.capturing = True
+    p.run_step(parse_demo(load_raw("demo: 1\napp: napari\nsteps:\n  - box: {canvas: [[20, 20], [40, 40]], keep: true, hold: false}\n")).steps[0])
+    before, z0 = p.overlay.annotations[0].anchor(), p.adapter.viewer.camera.zoom
+    p.run_step(parse_demo(load_raw("demo: 1\napp: napari\nsteps:\n  - zoom: {factor: 2, canvas: [30, 30]}\n")).steps[0])
+    after, z1 = p.overlay.annotations[0].anchor(), p.adapter.viewer.camera.zoom
+    # the boxed data region scales exactly with the camera zoom
+    assert after.width() / before.width() == pytest.approx(z1 / z0, rel=0.05)
+    assert z1 / z0 > 1.4
+    p.adapter.close()
