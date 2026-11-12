@@ -91,7 +91,7 @@ def test_builder_generates_valid_yaml():
         d.click(button=tool, parent="layer_controls").hold(0.5)
     d.drag(canvas=[(10, 10), (20, 30)], layer="cells")
     d.set(widget="opacity", value=0.5)
-    d.python("viewer.layers[0].visible = False")
+    d.python("viewer.layers[0].visible = False", effect="layer hidden")
     text = d.to_yaml()
     spec = parse(text)
     assert len(spec.steps) == 7
@@ -135,3 +135,30 @@ def test_schema_rejects_bad_step():
     with pytest.raises(jsonschema.ValidationError):
         jsonschema.validate({"demo": 1, "steps": [{"click": {"nope": 1}}]}, schema)
     jsonschema.validate({"demo": 1, "steps": [{"click": "Run"}, {"key": "Esc"}]}, schema)
+
+
+STRICT_BASE = "demo: 1\napp: napari\n"
+
+
+def test_strict_is_default_and_rejects_direct_steps():
+    with pytest.raises(DemoError, match=r"steps\[0\].*'camera' changes the app.*zoom, pan, rotate"):
+        parse(STRICT_BASE + "steps:\n  - camera: {zoom: 2}\n")
+    with pytest.raises(DemoError, match="'python' changes the app"):
+        parse(STRICT_BASE + "steps:\n  - python: 'x = 1'\n")
+    with pytest.raises(DemoError, match="menu: \\[File, Open Sample"):
+        parse(STRICT_BASE + "steps:\n  - open_sample: [napari, cells3d]\n")
+
+
+def test_direct_steps_allowed_in_setup_marked_or_relaxed():
+    assert parse(STRICT_BASE + "setup:\n  - camera: {zoom: 2}\n  - python: 'x = 1'\nsteps: []\n").setup
+    spec = parse(STRICT_BASE + "steps:\n  - camera: {zoom: 2, effect: zoomed in}\n  - python: {code: 'x = 1', effect: true}\n")
+    assert spec.steps[0].params["effect"] == "zoomed in"
+    assert parse(STRICT_BASE + "interaction: relaxed\nsteps:\n  - camera: {zoom: 2}\n").steps
+    with pytest.raises(DemoError):
+        parse(STRICT_BASE + "interaction: loose\nsteps: []\n")
+
+
+def test_input_steps_are_not_direct():
+    reg = registry_for("napari")
+    direct = sorted(n for n, st in reg.items() if st.direct)
+    assert direct == ["camera", "open_file", "open_plugin", "open_sample", "python"]

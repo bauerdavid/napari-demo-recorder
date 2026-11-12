@@ -78,11 +78,38 @@ Preview it live, without writing a file: `napari-demo-recorder play docs/annotat
 | `caption`, `highlight`, `cursor`, `hold` | overlays and timing |
 | `wait` | wait for background work (`idle`), a time, or a Python condition; cut from the GIF by default |
 | `python` | escape hatch: inline code or `module:function` (gets `viewer`, `window`, ...) |
-| napari: `open_sample`, `open_file`, `open_plugin`, `select_layer`, `toggle_visibility`, `dims`, `camera` | |
+| napari: `zoom`, `pan`, `rotate` | move the camera with the mouse: the wheel over a point, a drag (holding Space if the layer is in a painting mode), a drag in 3D |
+| napari: `select_layer`, `toggle_visibility`, `dims` | the layer list and the dims sliders |
+| napari: `open_sample`, `open_file`, `open_plugin`, `camera` | direct changes, meant for `setup` (see below) |
 
-Every step also accepts `duration`, `speed`, `pause` and `capture: false`. To list everything:
+Every step also accepts `duration`, `speed`, `pause`, `capture: false` and `effect` (see below). To list everything:
 `napari-demo-recorder steps -v`. For editor autocompletion and for LLMs, the JSON schema is at
 `napari-demo-recorder schema -o demo.schema.json`.
+
+### Only what a viewer could do (strict mode)
+
+A tutorial GIF promises "you can do this too". By default (`interaction: strict`), the app may
+only change during `steps` through simulated input: clicks, drags, keys and the mouse wheel.
+
+* Steps that change the app directly (`python`, `camera`, `open_sample`, `open_file`,
+  `open_plugin`) belong in `setup`. Under `steps` they fail validation, and the error names the
+  input-based step to use instead, e.g. `zoom`, `pan` or `rotate` for `camera`.
+* If an interaction does not have the expected effect, for example a click on the eye icon that
+  does not hide the layer, or a menu item that is not triggered, the render fails instead of
+  quietly forcing the result. That's what you want in CI after a UI change.
+* Sliders are dragged and then adjusted with small corrective drags, as a person would. Only a
+  remaining error smaller than one pixel of mouse movement is rounded away.
+
+When a direct change is still the right thing, for example skipping a long computation, mark the step.
+The GIF shows a dashed "fast-forward" marker while it happens, so it never looks like
+something a person did:
+
+```yaml
+  - python: {code: "viewer.layers['cells'].data = precomputed", effect: "segmentation (2 min) skipped"}
+  - camera: {zoom: 4, center: [60, 120], effect: true}       # marker text: "view changed"
+```
+
+`interaction: relaxed` at the top level allows direct changes everywhere. They are still marked.
 
 ### Targeting widgets
 
@@ -164,7 +191,11 @@ jobs:
       pull-requests: write
 ```
 
-It renders on Xvfb and opens a pull request with the updated GIFs.
+It renders on Xvfb and opens a pull request with the updated GIFs. For the pull request, enable
+*Settings → Actions → General → Workflow permissions → Allow GitHub Actions to create and approve
+pull requests* in your repository (it is off by default). Without it, the run still succeeds and
+the GIFs are available as the `demos` artifact and on the `update-demo-gifs` branch, with a warning
+that explains the setting.
 
 ## Other Qt apps
 

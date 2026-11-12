@@ -36,6 +36,15 @@ class Highlight:
 
 
 @dataclass
+class EffectBadge:
+    """Marks a change that did not come from (simulated) user input."""
+
+    text: str
+    t0: float
+    t1: float | None = None
+
+
+@dataclass
 class OverlayStyle:
     cursor: bool = True
     cursor_scale: float = 1.0
@@ -60,14 +69,16 @@ class OverlayState:
     caption: str | None = None
     caption_t0: float = 0.0
     highlights: list[Highlight] = field(default_factory=list)
+    effects: list[EffectBadge] = field(default_factory=list)
 
     def prune(self, t: float) -> None:
         self.ripples = [r for r in self.ripples if t - r.t0 < RIPPLE_TIME]
         self.keys = [k for k in self.keys if t - k[1] < KEY_TIME][-3:]
         self.highlights = [h for h in self.highlights if h.t1 is None or t < h.t1 + FADE]
+        self.effects = [e for e in self.effects if e.t1 is None or t < e.t1 + FADE]
 
     def active(self, t: float) -> bool:
-        return bool(self.cursor or self.ripples or self.keys or self.caption or self.highlights)
+        return bool(self.cursor or self.ripples or self.keys or self.caption or self.highlights or self.effects)
 
 
 def _fade(t: float, t0: float, t1: float | None) -> float:
@@ -91,6 +102,8 @@ def paint_overlays(painter: QPainter, state: OverlayState, t: float, size, rect_
             _paint_highlight(painter, QRectF(rect), accent, _fade(t, h.t0, h.t1), t - h.t0, h.label)
     for r in state.ripples:
         _paint_ripple(painter, r, t, accent)
+    for i, e in enumerate(state.effects):
+        _paint_effect(painter, e.text, i, accent, _fade(t, e.t0, e.t1))
     if state.caption:
         _paint_caption(painter, state, size, _fade(t, state.caption_t0, None))
     if state.keys:
@@ -130,6 +143,46 @@ def _paint_label(p: QPainter, text: str, anchor: QPointF, color: QColor, alpha: 
     p.drawRoundedRect(box, 4, 4)
     p.setPen(QColor(20, 20, 20, int(255 * alpha)))
     p.drawText(box, Qt.AlignmentFlag.AlignCenter, text)
+
+
+def _paint_effect(p: QPainter, text: str, row: int, color: QColor, alpha: float):
+    """A "fast-forward" pill in the top-left corner with a dashed border: clearly an editing
+    marker, not part of the app.  The icon is drawn (fonts on CI machines lack the glyph)."""
+    if alpha <= 0:
+        return
+    font = QFont()
+    font.setPointSizeF(13)
+    font.setBold(True)
+    p.setFont(font)
+    fm = QFontMetricsF(font)
+    icon_w = fm.height() * 0.9
+    w, h = fm.horizontalAdvance(text) + icon_w + 36, fm.height() + 14
+    box = QRectF(18, 18 + row * (h + 8), w, h)
+    pen_c = QColor(color)
+    pen_c.setAlphaF(alpha)
+    pen = QPen(pen_c, 2.5)
+    pen.setStyle(Qt.PenStyle.DashLine)
+    p.setPen(pen)
+    p.setBrush(QColor(15, 15, 20, int(225 * alpha)))
+    p.drawRoundedRect(box, h / 2, h / 2)
+    # two triangles (fast-forward)
+    cy = box.center().y()
+    x0 = box.left() + 14
+    tri_h = fm.height() * 0.55
+    tri_w = icon_w / 2
+    p.setPen(Qt.PenStyle.NoPen)
+    p.setBrush(pen_c)
+    for k in range(2):
+        path = QPainterPath()
+        left = x0 + k * tri_w
+        path.moveTo(QPointF(left, cy - tri_h / 2))
+        path.lineTo(QPointF(left + tri_w, cy))
+        path.lineTo(QPointF(left, cy + tri_h / 2))
+        path.closeSubpath()
+        p.drawPath(path)
+    p.setPen(QColor(255, 255, 255, int(255 * alpha)))
+    text_box = QRectF(x0 + icon_w + 8, box.top(), box.width() - icon_w - 30, box.height())
+    p.drawText(text_box, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, text)
 
 
 def _paint_ripple(p: QPainter, r: Ripple, t: float, color: QColor):

@@ -157,7 +157,7 @@ def test_showcase_demo(qapp, examples):
     painted = np.count_nonzero(labels.data)
     assert painted > 100  # first stroke stays
     assert labels.brush_size == 12
-    assert v.camera.zoom == pytest.approx(4.5)
+    assert not p.overlay.effects  # the showcase uses visible input only
     assert v.scale_bar.visible
     p.adapter.close()
 
@@ -208,3 +208,34 @@ def test_widget(player, viewer, examples):
     rec.stop()
     w.recorder = None
     w.record_btn.setChecked(False)
+
+
+def test_zoom_pan_rotate_use_the_mouse(qapp):
+    p = make_player(setup="[{python: 'viewer.add_image(np.random.rand(20, 64, 64), name=\"img\")'}]")
+    p.run(close=False)
+    v = p.adapter.viewer
+    z0 = v.camera.zoom
+    p.run_step(parse_demo(load_raw("demo: 1\napp: napari\nsteps:\n  - zoom: {factor: 2, canvas: [32, 32]}\n")).steps[0])
+    assert v.camera.zoom / z0 == pytest.approx(2, rel=0.25)  # nearest wheel notch
+    c0 = np.asarray(v.camera.center).copy()
+    p.run_step(parse_demo(load_raw("demo: 1\napp: napari\nsteps:\n  - pan: {from: [32, 32], to: [32, 20]}\n")).steps[0])
+    assert np.asarray(v.camera.center)[-1] == pytest.approx(c0[-1] + 12, abs=1.0)
+    v.dims.ndisplay = 3
+    p.settle(0.2)
+    a0 = np.asarray(v.camera.angles).copy()
+    p.run_step(parse_demo(load_raw("demo: 1\napp: napari\nsteps:\n  - rotate: [80, 30]\n")).steps[0])
+    assert not np.allclose(np.asarray(v.camera.angles), a0)
+    assert not p.overlay.effects
+    p.adapter.close()
+
+
+def test_pan_holds_space_in_paint_mode(qapp):
+    p = make_player(setup="[{python: 'viewer.add_image(np.random.rand(64, 64), name=\"img\"); lab = viewer.add_labels(np.zeros((64, 64), int)); lab.mode = \"paint\"'}]")
+    p.run(close=False)
+    v = p.adapter.viewer
+    c0 = np.asarray(v.camera.center).copy()
+    p.run_step(parse_demo(load_raw("demo: 1\napp: napari\nsteps:\n  - pan: {from: [32, 32], to: [32, 20]}\n")).steps[0])
+    assert np.asarray(v.camera.center)[-1] == pytest.approx(c0[-1] + 12, abs=1.0)
+    assert np.count_nonzero(v.layers["Labels"].data) == 0  # panned, did not paint
+    assert any("Space" in k for k, _ in p.overlay.keys) or p.overlay.keys == []
+    p.adapter.close()
