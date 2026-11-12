@@ -56,6 +56,13 @@ COMMON_PROPS: dict[str, dict] = {
     "speed": {"type": "number", "exclusiveMinimum": 0, "description": "Speed multiplier for this step."},
     "pause": {"type": "number", "minimum": 0, "description": "Extra hold after the step (s)."},
     "capture": {"type": "boolean", "description": "false: run the step without recording frames."},
+    "effect": {
+        "type": ["boolean", "string"],
+        "description": (
+            "Allow this step to change the app without visible input (strict mode). The GIF shows "
+            "a marker while it happens; a string is used as the marker text."
+        ),
+    },
 }
 
 
@@ -70,6 +77,10 @@ class StepType:
     targets: bool = False
     #: False -> extra keys allowed (python steps pass kwargs through)
     strict: bool = True
+    #: changes the app directly (not through simulated input); needs ``effect`` in strict mode
+    direct: bool = False
+    #: marker text shown when a direct step runs
+    effect_label: str = "skipped ahead"
 
     def properties(self) -> dict[str, dict]:
         props = dict(COMMON_PROPS)
@@ -121,6 +132,8 @@ class StepRegistry(dict[str, StepType]):
         shorthand: str | list[str] | None = None,
         targets: bool = False,
         strict: bool = True,
+        direct: bool = False,
+        effect_label: str | None = None,
     ) -> Callable[[RunFn], RunFn]:
         def deco(fn: RunFn) -> RunFn:
             self[name] = StepType(
@@ -132,6 +145,8 @@ class StepRegistry(dict[str, StepType]):
                 doc=(fn.__doc__ or "").strip().split("\n\n")[0].replace("\n", " "),
                 targets=targets,
                 strict=strict,
+                direct=direct,
+                effect_label=effect_label or "skipped ahead",
             )
             return fn
 

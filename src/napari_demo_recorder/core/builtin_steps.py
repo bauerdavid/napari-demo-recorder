@@ -350,7 +350,9 @@ def set_(p: Player, params: dict):
         yield from _type_text(p, _fmt(value))
         p.input.key("Return")
         yield from p.seconds(0.2)
-        _final_value(widget, magic, value)
+        if not _has_value(widget, magic, value):
+            p.direct_change(f"set: typing {_fmt(value)!r} left {_describe_value(widget, magic)!r}")
+            _final_value(widget, magic, value)
     else:
         raise DemoError(f"set: don't know how to set a {type(widget).__name__}")
     if hl is not None:
@@ -383,6 +385,35 @@ def _magic_of(widget: QWidget, found: QWidget):
     return mw if mw is not None and hasattr(mw, "value") else None
 
 
+def _current_value(widget: QWidget, magic):
+    if magic is not None:
+        return magic.value
+    if isinstance(widget, QLineEdit):
+        return widget.text()
+    if isinstance(widget, QTextEdit | QPlainTextEdit):
+        return widget.toPlainText()
+    return widget.value() if hasattr(widget, "value") else None
+
+
+def _describe_value(widget: QWidget, magic) -> str:
+    try:
+        return str(_current_value(widget, magic))
+    except Exception:
+        return "?"
+
+
+def _has_value(widget: QWidget, magic, value, tol: float = 1e-6) -> bool:
+    try:
+        cur = _current_value(widget, magic)
+    except Exception:
+        return False
+    if isinstance(value, bool) or isinstance(cur, bool):
+        return bool(cur) == bool(value)
+    if isinstance(value, int | float) and isinstance(cur, int | float):
+        return abs(float(cur) - float(value)) <= tol + 1e-9
+    return str(cur) == str(value) or norm(str(cur)) == norm(str(value))
+
+
 def _final_value(widget: QWidget, magic, value) -> None:
     try:
         if magic is not None:
@@ -413,21 +444,50 @@ def _handle_point(p: Player, slider: QAbstractSlider, frac: float) -> QPoint:
     return QPoint(rect.center().x(), round(y))
 
 
+def _track_pixels(slider: QAbstractSlider) -> int:
+    length = slider.width() if slider.width() >= slider.height() else slider.height()
+    return max(1, length - 20)
+
+
 def _set_slider(p: Player, widget: QAbstractSlider, value, magic):
-    # superqt / magicgui sliders wrap a plain QSlider: drag that one, set the value on the outer
+    """Drag the handle like a person: one drag, then small corrections if it landed off target.
+
+    The exact value is only snapped when the remaining error is below what one pixel of mouse
+    movement can resolve; anything larger is a failed interaction (see ``Player.direct_change``).
+    """
+    # superqt / magicgui sliders wrap a plain QSlider: drag that one, read/set the outer value
     kids = [k for k in widget.findChildren(QAbstractSlider) if k.isVisible()]
     inner = kids[0] if kids else widget
     if magic is not None and hasattr(magic, "min") and hasattr(magic, "max"):
-        lo, hi, cur = float(magic.min), float(magic.max), float(magic.value)
+        lo, hi = float(magic.min), float(magic.max)
     else:
-        lo, hi, cur = float(widget.minimum()), float(widget.maximum()), float(widget.value())
+        lo, hi = float(widget.minimum()), float(widget.maximum())
     span = (hi - lo) or 1.0
-    f0 = min(1.0, max(0.0, (cur - lo) / span))
-    f1 = min(1.0, max(0.0, (float(value) - lo) / span))
-    start = _handle_point(p, inner, f0)
-    end = _handle_point(p, inner, f1)
-    yield from p.drag([start, end], duration=0.35 + 0.6 * abs(f1 - f0))
-    _final_value(widget, magic, value)
+    tol = span / _track_pixels(inner)  # one pixel's worth of value
+
+    def frac(v: float) -> float:
+        return min(1.0, max(0.0, (float(v) - lo) / span))
+
+    target_f = frac(value)
+    aim_f = target_f
+    cur_f = frac(_current_value(widget, magic))
+    for attempt in range(4):
+        start = _handle_point(p, inner, cur_f)
+        end = _handle_point(p, inner, aim_f)
+        if attempt and (start - end).manhattanLength() < 1:
+            break
+        yield from p.drag([start, end], duration=(0.35 + 0.6 * abs(aim_f - cur_f)) if attempt == 0 else 0.3)
+        got = float(_current_value(widget, magic))
+        if abs(got - float(value)) <= tol:
+            break
+        # landed off target (handle geometry estimate): aim again, correcting by the error
+        cur_f = frac(got)
+        aim_f = min(1.0, max(0.0, aim_f + (target_f - cur_f)))
+    if not _has_value(widget, magic, value, tol=tol):
+        p.direct_change(
+            f"set: dragging the slider ended at {_describe_value(widget, magic)} instead of {value}"
+        )
+    _final_value(widget, magic, value)  # only removes sub-pixel rounding at this point
 
 
 def _set_combo(p: Player, combo: QComboBox, value):
@@ -459,6 +519,7 @@ def _set_combo(p: Player, combo: QComboBox, value):
     if combo.currentIndex() != idx:
         if combo.view().isVisible():
             combo.hidePopup()
+        p.direct_change(f"set: choosing {texts[idx]!r} in the combo box's list did not select it")
         combo.setCurrentIndex(idx)
         yield
 
@@ -550,8 +611,9 @@ def menu(p: Player, params: dict):
         else:
             yield from p.click(pt)
             if any(m.isVisible() for m in QApplication.topLevelWidgets() if isinstance(m, QMenu)):
-                # synthetic release did not trigger it (some styles) - trigger directly
+                # the click did not trigger the item
                 _close_menus()
+                p.direct_change(f"menu: clicking {name!r} did not trigger it")
                 act.trigger()
             current = None
     if current is not None:
@@ -574,6 +636,8 @@ def _close_menus() -> None:
     required=["code"],
     shorthand="code",
     strict=False,
+    direct=True,
+    effect_label="code ran",
 )
 def python(p: Player, params: dict):
     """Run Python: inline code, or call ``module:function`` (extra keys become keyword args).

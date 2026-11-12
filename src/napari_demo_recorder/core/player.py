@@ -24,7 +24,7 @@ from .capture import FrameStore, compose_frame
 from .encode import DEFAULT_MAX_SIZE, EncodeResult, encode_gif, encode_mp4
 from .format import DemoError, DemoSpec, Step, parse_size
 from .input import VirtualInput
-from .overlay import Highlight, OverlayState, OverlayStyle, Ripple, paint_overlays
+from .overlay import EffectBadge, Highlight, OverlayState, OverlayStyle, Ripple, paint_overlays
 from .selectors import INTERNAL_PREFIX, find_widget, input_widget, window_center, window_rect
 from .steps import CORE_STEPS
 
@@ -97,6 +97,9 @@ class Player:
         self.input: VirtualInput | None = None
         self.namespace: dict[str, Any] = {}
         self.current: Step | None = None
+        self.strict = spec.strict
+        self.section = "setup"
+        self._effect: EffectBadge | None = None
 
     # ================================================================== lifecycle
     def start(self) -> QWidget:
@@ -191,9 +194,20 @@ class Player:
             self.capturing = False
         self._step_speed = float(params.get("speed", 1.0))
         self.current = step
+        self.section = section
+        self._effect = None
+        t_start = self.t
         try:
+            if section == "steps" and (st.direct or params.get("effect")):
+                self.mark_effect(_effect_text(params, st.effect_label))
             for _ in st.run(self, params):
                 self.frame()
+            if self._effect is not None:
+                # keep the marker readable even for instant changes (python, camera jumps)
+                for _ in self.seconds(max(0.0, 1.2 - (self.t - t_start)), scaled=False):
+                    self.frame()
+                self._effect.t1 = self.t
+                self._effect = None
             if params.get("pause"):
                 for _ in self.seconds(params["pause"]):
                     self.frame()
@@ -206,6 +220,32 @@ class Player:
         finally:
             self.capturing, self._step_speed = prev_capturing, prev_speed
             self.current = None
+
+    # ================================================================== honesty
+    def mark_effect(self, text: str) -> None:
+        """Show the "this did not come from user input" marker for the current step."""
+        if self._effect is None:
+            self._effect = EffectBadge(text, self.t)
+            self.overlay.effects.append(self._effect)
+
+    def direct_change(self, what: str) -> None:
+        """Gate for any change that is not caused by simulated input.
+
+        Allowed in ``setup``, in steps marked with ``effect`` and in relaxed demos - always with
+        a visible marker.  In strict mode it is an error: the demo would show something a viewer
+        cannot reproduce (usually the interaction silently failed, e.g. after a UI change).
+        """
+        if self.section == "setup":
+            return
+        params = self.current.params if self.current is not None else {}
+        if self.strict and not params.get("effect"):
+            raise DemoError(
+                f"{what}. In strict mode a step may only change the app through visible input; "
+                "fix the step (the UI may have changed), or mark it with 'effect: <what happened>' "
+                "to show a marker instead."
+            )
+        st = self.registry.get(self.current.name) if self.current is not None else None
+        self.mark_effect(_effect_text(params, st.effect_label if st else "changed directly"))
 
     # ================================================================== clock & frames
     @property
@@ -329,6 +369,11 @@ class Player:
         self.overlay.pressed = True
         self.overlay.ripples.append(Ripple(QPoint(points[0]), self.t, button))
         yield from self.seconds(0.08)
+        fast = not self.capturing
+        if fast:
+            # without frame grabbing there is no real time between events; apps that handle the
+            # press or moves on timers (napari) would miss parts of the drag
+            self.settle(0.03)
         path = [QPointF(p) for p in points]
         if len(path) == 1:
             path.append(path[0])
@@ -337,14 +382,19 @@ class Player:
         if duration is None:
             duration = min(5.0, max(0.4, total / 450))
         n = self.n_frames(duration)
-        if not self.capturing:
-            n = max(n, len(path) * 2)  # still send intermediate moves when not capturing
+        if fast:
+            n = max(n, len(path) * 2, 10)  # still send intermediate moves when not capturing
         for i in range(1, n + 1):
             d = (0.15 * (i / n) + 0.85 * ease(i / n)) * total
             self._set_pos(_along(path, seg, d))
+            if fast:
+                self.settle(0.01)
             yield
         self._set_pos(points[-1])
         yield from self.seconds(0.06)
+        # Apps may throttle mouse-move handling with timers (napari does); give pending moves
+        # real time to be delivered before the release, or the end of the drag is lost.
+        self.settle(0.05)
         self.input.release(button)
         self.overlay.pressed = False
         yield from self.seconds(0.2)
@@ -370,6 +420,11 @@ def _along(path: list[QPointF], seg: list[float], d: float) -> QPoint:
             return QPoint(round(a.x() + (b.x() - a.x()) * f), round(a.y() + (b.y() - a.y()) * f))
         d -= length
     return path[-1].toPoint()
+
+
+def _effect_text(params: dict, default: str) -> str:
+    effect = params.get("effect")
+    return effect if isinstance(effect, str) and effect.strip() else default
 
 
 def _short_params(params: dict) -> str:
