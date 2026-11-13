@@ -14,6 +14,8 @@ from qtpy.QtCore import QPoint, QPointF, QRect, QRectF, Qt
 from qtpy.QtGui import QColor, QFont, QFontMetricsF, QPainter, QPainterPath, QPen
 from qtpy.QtWidgets import QWidget
 
+from .annotations import Annotation, paint_annotation, palette_color
+
 RIPPLE_TIME = 0.45
 KEY_TIME = 1.1
 FADE = 0.15
@@ -52,6 +54,7 @@ class OverlayStyle:
     caption_position: str = "bottom"
     caption_size: float = 15.0
     keys_position: str = "bottom-right"
+    palette: str = "accent"
 
     @classmethod
     def from_dict(cls, d: dict | None) -> OverlayStyle:
@@ -70,15 +73,17 @@ class OverlayState:
     caption_t0: float = 0.0
     highlights: list[Highlight] = field(default_factory=list)
     effects: list[EffectBadge] = field(default_factory=list)
+    annotations: list[Annotation] = field(default_factory=list)
 
     def prune(self, t: float) -> None:
         self.ripples = [r for r in self.ripples if t - r.t0 < RIPPLE_TIME]
         self.keys = [k for k in self.keys if t - k[1] < KEY_TIME][-3:]
         self.highlights = [h for h in self.highlights if h.t1 is None or t < h.t1 + FADE]
         self.effects = [e for e in self.effects if e.t1 is None or t < e.t1 + FADE]
+        self.annotations = [a for a in self.annotations if a.t1 is None or t < a.t1 + FADE]
 
     def active(self, t: float) -> bool:
-        return bool(self.cursor or self.ripples or self.keys or self.caption or self.highlights or self.effects)
+        return bool(self.cursor or self.ripples or self.keys or self.caption or self.highlights or self.effects or self.annotations)
 
 
 def _fade(t: float, t0: float, t1: float | None) -> float:
@@ -100,6 +105,8 @@ def paint_overlays(painter: QPainter, state: OverlayState, t: float, size, rect_
         rect = h.rect if h.rect is not None else (rect_of(h.widget) if h.widget is not None else None)
         if rect is not None:
             _paint_highlight(painter, QRectF(rect), accent, _fade(t, h.t0, h.t1), t - h.t0, h.label)
+    for a in state.annotations:
+        paint_annotation(painter, a, t, palette_color(state.style.palette, a.kind, state.style.accent))
     for r in state.ripples:
         _paint_ripple(painter, r, t, accent)
     for i, e in enumerate(state.effects):
