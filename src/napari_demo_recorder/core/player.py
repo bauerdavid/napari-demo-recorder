@@ -98,6 +98,7 @@ class Player:
         self.namespace: dict[str, Any] = {}
         self.current: Step | None = None
         self.strict = spec.strict
+        self.step_number = 0  # last number used by step_circle
         self.section = "setup"
         self._effect: EffectBadge | None = None
 
@@ -314,6 +315,36 @@ class Player:
         if off:
             p = p + QPoint(round(off[0]), round(off[1]))
         return p
+
+    def anchor(self, params: dict):
+        """A function returning the target's current rectangle (window coords) for annotations.
+
+        Widgets are looked up once and re-measured every frame; canvas points are re-mapped
+        every frame, so callouts follow layout and camera changes.
+        """
+        from qtpy.QtCore import QRectF
+
+        if any(k in params for k in ("canvas", "at", "path")):
+            def points_rect():
+                pts = self.points(params)
+                xs = [q.x() for q in pts]
+                ys = [q.y() for q in pts]
+                return QRectF(min(xs), min(ys), max(xs) - min(xs), max(ys) - min(ys))
+
+            points_rect()  # fail early (bad coordinates / missing layer)
+            return points_rect
+        widget = self.find(params)
+        window = self.window
+
+        def widget_rect():
+            try:
+                if not widget.isVisible():
+                    return None
+                return QRectF(window_rect(window, widget))
+            except RuntimeError:  # deleted
+                return None
+
+        return widget_rect
 
     def has_target(self, params: dict) -> bool:
         return any(k in params for k in ("button", "widget", "canvas", "at", "path", "class", "object_name", "tooltip"))

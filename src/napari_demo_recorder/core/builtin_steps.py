@@ -148,6 +148,96 @@ def cursor(p: Player, params: dict):
     yield
 
 
+# ---------------------------------------------------------------------------- callouts
+
+ANNOTATION_PARAMS = {
+    "label": {"type": "string", "description": "Narrative text shown next to the callout."},
+    "color": {"type": "string", "description": "Any Qt colour name or #hex (default: style palette)."},
+    "hold": {
+        "type": "boolean",
+        "description": "true (default): wait 'duration' s. false: continue with the next steps while it shows.",
+    },
+    "keep": {"type": "boolean", "description": "Stay until clear_annotations instead of 'duration' s."},
+}
+
+
+def _annotate(p: Player, params: dict, kind: str, **extra):
+    from .annotations import Annotation
+
+    if not p.has_target(params):
+        raise DemoError(f"{kind}: needs a target (button, widget, canvas or at)")
+    secs = p.duration(params, 1.8)
+    real = secs / (p.speed * p._step_speed)
+    a = Annotation(
+        kind=kind,
+        anchor=p.anchor(params),
+        t0=p.t,
+        t1=None if params.get("keep") else p.t + real,
+        label=params.get("label"),
+        color=params.get("color"),
+        **extra,
+    )
+    p.overlay.annotations.append(a)
+    if params.get("hold", True):
+        yield from p.seconds(secs)
+
+
+@S.step(
+    "arrow",
+    params={
+        **ANNOTATION_PARAMS,
+        "from": {"enum": ["left", "right", "top", "bottom", "top-left", "top-right", "bottom-left", "bottom-right"],
+                 "description": "Side the arrow comes from (default top-left)."},
+        "length": {"type": "number", "minimum": 20, "description": "Arrow length in pixels (default 90)."},
+    },
+    targets=True,
+    shorthand="widget",
+)
+def arrow(p: Player, params: dict):
+    """Point an arrow at a widget or canvas point (with an optional label at its tail)."""
+    yield from _annotate(p, params, "arrow", direction=params.get("from", "top-left"),
+                         length=float(params.get("length", 90)))  # fmt: skip
+
+
+@S.step(
+    "step_circle",
+    params={**ANNOTATION_PARAMS, "number": {"type": "integer", "minimum": 0, "description": "Default: previous + 1."}},
+    targets=True,
+    shorthand="widget",
+)
+def step_circle(p: Player, params: dict):
+    """Put a numbered circle on a widget (top-left corner) or canvas point."""
+    number = params.get("number", p.step_number + 1)
+    p.step_number = number
+    yield from _annotate(p, params, "step", number=number)
+
+
+@S.step(
+    "box",
+    params={
+        **ANNOTATION_PARAMS,
+        "shape": {"enum": ["rect", "circle"]},
+        "fill": {"type": "boolean", "description": "Tint the inside."},
+    },
+    targets=True,
+    shorthand="widget",
+)
+def box(p: Player, params: dict):
+    """Frame a widget or a canvas region (canvas: [[y0, x0], [y1, x1]]) with a box or circle."""
+    yield from _annotate(p, params, "box", shape=params.get("shape", "rect"), fill=bool(params.get("fill", False)))
+
+
+@S.step("clear_annotations", params={"reset_numbers": {"type": "boolean"}})
+def clear_annotations(p: Player, params: dict):
+    """Fade out all arrows, step circles and boxes (also ones with keep: true)."""
+    for a in p.overlay.annotations:
+        if a.t1 is None or a.t1 > p.t:
+            a.t1 = p.t
+    if params.get("reset_numbers"):
+        p.step_number = 0
+    yield from p.seconds(0.2)
+
+
 # ---------------------------------------------------------------------------- mouse
 
 CLICK_PARAMS = {
