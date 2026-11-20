@@ -14,7 +14,7 @@ from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
-from qtpy.QtCore import QPoint, QPointF, Qt
+from qtpy.QtCore import QPoint, QPointF, QRect, Qt
 from qtpy.QtGui import QPainter
 from qtpy.QtWidgets import QApplication, QWidget
 
@@ -25,7 +25,14 @@ from .encode import DEFAULT_MAX_SIZE, EncodeResult, encode_gif, encode_mp4
 from .format import DemoError, DemoSpec, Step, parse_size
 from .input import VirtualInput
 from .overlay import EffectBadge, Highlight, OverlayState, OverlayStyle, Ripple, paint_overlays
-from .selectors import INTERNAL_PREFIX, find_widget, input_widget, window_center, window_rect
+from .selectors import (
+    INTERNAL_PREFIX,
+    find_widget,
+    input_widget,
+    resolve_scope,
+    window_center,
+    window_rect,
+)
 from .steps import CORE_STEPS
 
 DEFAULT_SIZE = (1280, 800)
@@ -100,6 +107,8 @@ class Player:
         self.strict = spec.strict
         self.section = "setup"
         self._effect: EffectBadge | None = None
+        #: still images written by ``snapshot`` steps (render mode)
+        self.snapshots: list[Path] = []
 
     # ================================================================== lifecycle
     def start(self) -> QWidget:
@@ -138,6 +147,8 @@ class Player:
             time.sleep(0.01)
 
     def run(self, output: str | Path | None = None, *, close: bool = True) -> EncodeResult | None:
+        if self.mode == "render":
+            self.spec.output_format(output)  # fail before rendering, not after
         try:
             self.start()
             self.capturing = False
@@ -162,7 +173,7 @@ class Player:
     def encode(self, output: str | Path | None = None) -> EncodeResult:
         out = self.spec.output
         path = self.spec.output_path(output)
-        fmt = path.suffix.lstrip(".").lower() or out.get("format", "gif")
+        fmt = self.spec.output_format(output)
         self.log(f"encoding {len(self.store)} unique frames ({self.store.duration:.1f} s) -> {path}")
         if fmt == "mp4":
             result = encode_mp4(self.store, path, scale=float(out.get("scale", 1.0)), log=self.log)
@@ -270,6 +281,63 @@ class Player:
                 time.sleep(delay)
         if self.capturing:
             self.t += self.dt
+
+    def save_snapshot(self, params: dict) -> Path | None:
+        """Write the current view (with overlays, as the next frame would show it) to an image.
+
+        Only ``render`` writes files; ``play`` and ``run`` just log the path.  Takes no time.
+        """
+        path = self.spec.resolve(params["path"])
+        if self.mode != "render":
+            self.log(f"  snapshot {path} (not written in {self.mode} mode)")
+            return None
+        QApplication.processEvents()
+        self.adapter.prepare_frame()
+        style = self.overlay.style
+        prev_cursor = style.cursor
+        if "cursor" in params:
+            style.cursor = bool(params["cursor"])
+        try:
+            overlay = self.overlay if params.get("overlays", True) else None
+            frame = compose_frame(self.window, overlay, self.t)
+        finally:
+            style.cursor = prev_cursor
+        if any(k in params for k in ("widget", "parent")):
+            frame = self._crop(frame, params)
+        from PIL import Image
+
+        img = Image.fromarray(frame, "RGB")
+        scale = float(params.get("scale", 1.0))
+        if abs(scale - 1.0) > 1e-6:
+            img = img.resize(
+                (max(1, round(img.width * scale)), max(1, round(img.height * scale))), Image.Resampling.LANCZOS
+            )
+        path.parent.mkdir(parents=True, exist_ok=True)
+        suffix = path.suffix.lower()
+        opts: dict[str, Any] = {}
+        if suffix == ".png":
+            opts["optimize"] = True
+        elif suffix in (".jpg", ".jpeg", ".webp"):
+            opts["quality"] = 92
+        img.save(path, **opts)
+        self.snapshots.append(path)
+        self.log(f"  snapshot -> {path} ({img.width}x{img.height})")
+        return path
+
+    def _crop(self, frame, params: dict):
+        if "widget" in params:
+            sel = {k: params[k] for k in ("widget", "parent", "index") if k in params}
+            rect = window_rect(self.window, self.find(sel))
+        else:  # only 'parent': crop to that dock / app area
+            rect = QRect()
+            for root in resolve_scope(self.window, params["parent"], self.adapter).roots:
+                rect = rect.united(window_rect(self.window, root))
+        pad = int(params.get("padding", 0))
+        h, w = frame.shape[:2]
+        r = rect.adjusted(-pad, -pad, pad, pad).intersected(QRect(0, 0, w, h))
+        if r.isEmpty():
+            raise DemoError("snapshot: the widget to crop to is not visible in the window")
+        return frame[r.top() : r.bottom() + 1, r.left() : r.right() + 1]
 
     def seconds(self, s: float, *, scaled: bool = True) -> Iterator[None]:
         if scaled:

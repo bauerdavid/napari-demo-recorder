@@ -162,3 +162,26 @@ def test_input_steps_are_not_direct():
     reg = registry_for("napari")
     direct = sorted(n for n, st in reg.items() if st.direct)
     assert direct == ["camera", "open_file", "open_plugin", "open_sample", "python"]
+
+
+def test_snapshot_step_validation():
+    spec = parse("demo: 1\napp: napari\nsetup:\n  - snapshot: before.png\nsteps:\n  - snapshot: {path: after.jpg, widget: Run, padding: 4}\n")
+    assert spec.setup[0].params == {"path": "before.png"}
+    assert spec.steps[0].params["padding"] == 4
+    with pytest.raises(DemoError, match=r"steps\[0\].*image file extension"):
+        parse("demo: 1\napp: napari\nsteps:\n  - snapshot: docs/view\n")
+    with pytest.raises(DemoError, match=r"steps\[1\].*already written by .*steps\[0\]"):
+        parse("demo: 1\napp: napari\nsteps:\n  - snapshot: a.png\n  - snapshot: ./a.png\n")
+
+
+def test_still_image_output_is_rejected_with_a_hint():
+    with pytest.raises(DemoError, match=r"animation \(\.gif or \.mp4\).*'snapshot' step"):
+        parse("demo: 1\napp: napari\noutput: {path: docs/demo.png}\nsteps: []\n")
+    parse("demo: 1\napp: napari\noutput: {path: docs/demo.mp4}\nsteps: []\n")
+
+
+def test_builder_snapshot():
+    d = Demo(app="napari")
+    d.click(button="Run").snapshot("docs/result.png", widget="My Widget")
+    step = d.validate().steps[-1]
+    assert step.name == "snapshot" and step.params == {"path": "docs/result.png", "widget": "My Widget"}

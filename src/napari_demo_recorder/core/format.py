@@ -16,6 +16,11 @@ from .steps import StepRegistry, StepType
 
 FORMAT_VERSION = 1
 
+#: Animation formats of ``output`` (the main render).
+ANIMATION_FORMATS = ("gif", "mp4")
+#: File types the ``snapshot`` step can write (Pillow formats).
+SNAPSHOT_SUFFIXES = (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff")
+
 
 class DemoError(Exception):
     """A problem with a demo file or with running one of its steps."""
@@ -206,6 +211,24 @@ class DemoSpec:
         ext = self.output.get("format", "gif")
         return self.base_dir / f"{stem}.{ext}"
 
+    def output_format(self, override: str | Path | None = None) -> str:
+        """``gif`` or ``mp4``; a DemoError for anything else (e.g. ``.png``: use ``snapshot``)."""
+        path = self.output_path(override)
+        fmt = path.suffix.lstrip(".").lower() or self.output.get("format", "gif")
+        if fmt not in ANIMATION_FORMATS:
+            hint = (
+                " For still images, add a 'snapshot' step, e.g. '- snapshot: docs/view.png'."
+                if f".{fmt}" in SNAPSHOT_SUFFIXES
+                else ""
+            )
+            raise DemoError(f"output {path.name!r}: the output is an animation (.gif or .mp4), not {fmt!r}.{hint}")
+        return fmt
+
+    def resolve(self, path: str | Path) -> Path:
+        """A path from the demo file, relative to the demo file's folder."""
+        p = Path(path)
+        return p if p.is_absolute() else self.base_dir / p
+
 
 def parse_size(value: str | float | None) -> int | None:
     if value is None:
@@ -328,7 +351,33 @@ def parse_demo(data: dict, registry: StepRegistry | None = None, path: Path | No
                 )
     if "output" in data:
         parse_size(data["output"].get("max_size"))
+        try:
+            spec.output_format()
+        except DemoError as err:
+            raise DemoError(str(err), location=loc) from None
+    _check_snapshots(spec)
     return spec
+
+
+def _check_snapshots(spec: DemoSpec) -> None:
+    """Snapshot paths must be image files, and no two snapshots may write the same file."""
+    seen: dict[Path, Step] = {}
+    for step in [*spec.setup, *spec.steps]:
+        if step.name != "snapshot":
+            continue
+        path = Path(step.params["path"])
+        if path.suffix.lower() not in SNAPSHOT_SUFFIXES:
+            raise DemoError(
+                f"snapshot: {path.name!r} needs an image file extension ({', '.join(SNAPSHOT_SUFFIXES)})",
+                location=step.location,
+            )
+        key = spec.resolve(path).resolve()
+        if key in seen:
+            raise DemoError(
+                f"snapshot: {path.as_posix()!r} is already written by {seen[key].location or 'an earlier step'}",
+                location=step.location,
+            )
+        seen[key] = step
 
 
 _ALTERNATIVES = {

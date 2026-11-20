@@ -10,7 +10,7 @@ from napari_demo_recorder import DemoError, load_demo
 from napari_demo_recorder.core.capture import compose_frame
 from napari_demo_recorder.core.format import load_raw, parse_demo
 from napari_demo_recorder.core.player import Player
-from napari_demo_recorder.core.selectors import find_widget, find_widgets
+from napari_demo_recorder.core.selectors import find_widget, find_widgets, window_rect
 
 
 @pytest.fixture
@@ -162,3 +162,55 @@ def test_slider_reaches_value_by_dragging(player):
     player.run_step(Step("set", {"widget": "Brush size", "value": 27}))
     assert player.window.size_slider.value() == 27
     assert not player.overlay.effects  # no direct change was needed
+
+
+def test_snapshots_are_written_without_adding_time(qapp, examples, tmp_path):
+    steps = (
+        "setup:\n  - snapshot: {path: '%(d)s/setup.png', cursor: false}\n"
+        "steps:\n"
+        "  - caption: Hello\n"
+        "  - snapshot: '%(d)s/full.png'\n"
+        "  - snapshot: {path: '%(d)s/clean.png', overlays: false}\n"
+        "  - snapshot: {path: '%(d)s/tools.jpg', parent: Tools, padding: 2}\n"
+        "  - snapshot: {path: '%(d)s/clear.webp', widget: Clear, scale: 2}\n"
+    )
+    spec = _qt_spec(examples, steps % {"d": tmp_path.as_posix()})
+    p = Player(spec, log=None)
+    p.run(tmp_path / "x.gif", close=False)
+    names = sorted(path.name for path in p.snapshots)
+    assert names == ["clean.png", "clear.webp", "full.png", "setup.png", "tools.jpg"]
+    full = np.asarray(Image.open(tmp_path / "full.png").convert("RGB")).astype(int)
+    clean = np.asarray(Image.open(tmp_path / "clean.png").convert("RGB")).astype(int)
+    assert full.shape[:2] == (p.window.height(), p.window.width())
+    h, w = full.shape[:2]
+    assert full[h - 40, w // 2].sum() < 200  # caption drawn
+    assert clean[h - 40, w // 2].sum() > 200  # ... but not with overlays: false
+    dock = p.window.findChild(QDockWidget, "tools")
+    tools = Image.open(tmp_path / "tools.jpg")
+    # padding is clipped where the dock touches the window edge
+    r = window_rect(p.window, dock).adjusted(-2, -2, 2, 2).intersected(p.window.rect())
+    assert tools.size == (r.width(), r.height())
+    assert r.width() > dock.width()
+    button = find_widget(p.window, {"widget": "Clear"})
+    assert Image.open(tmp_path / "clear.webp").size == (button.width() * 2, button.height() * 2)
+    # the snapshots took no time: the caption alone determines the GIF length
+    caption_only = Player(_qt_spec(examples, "steps:\n  - caption: Hello\n"), log=None)
+    caption_only.run(tmp_path / "y.gif", close=False)
+    assert p.store.duration == pytest.approx(caption_only.store.duration, abs=1e-6)
+    caption_only.adapter.close()
+    p.adapter.close()
+
+
+def test_snapshots_are_not_written_in_run_mode(qapp, examples, tmp_path):
+    spec = _qt_spec(examples, f"steps:\n  - snapshot: '{(tmp_path / 'a.png').as_posix()}'\n")
+    p = Player(spec, mode="run", log=None)
+    p.run(close=False)
+    assert p.snapshots == [] and not (tmp_path / "a.png").exists()
+    p.adapter.close()
+
+
+def test_still_image_output_override_fails_before_rendering(qapp, examples, tmp_path):
+    spec = _qt_spec(examples, "steps:\n  - hold: 1\n")
+    with pytest.raises(DemoError, match="'snapshot' step"):
+        Player(spec, log=None).run(tmp_path / "out.png")
+    assert not (tmp_path / "out.png").exists()

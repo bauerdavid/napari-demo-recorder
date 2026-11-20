@@ -76,6 +76,7 @@ Preview it live, without writing a file: `napari-demo-recorder play docs/annotat
 | `scroll` | mouse wheel (zooms the napari canvas) |
 | `menu` | `[View, Scale Bar, Toggle Scale Bar]`, clicking through each sub-menu |
 | `caption`, `highlight`, `cursor`, `hold` | overlays and timing |
+| `snapshot` | save the current view as a still image (PNG, JPEG, WebP), optionally cropped to a widget; takes no time in the GIF |
 | `wait` | wait for background work (`idle`), a time, or a Python condition; cut from the GIF by default |
 | `python` | escape hatch: inline code or `module:function` (gets `viewer`, `window`, ...) |
 | napari: `zoom`, `pan`, `rotate` | move the camera with the mouse: the wheel over a point, a drag (holding Space if the layer is in a painting mode), a drag in 3D |
@@ -110,6 +111,32 @@ something a person did:
 ```
 
 `interaction: relaxed` at the top level allows direct changes everywhere. They are still marked.
+
+### Still images (snapshots)
+
+A `snapshot` step saves what the GIF shows at that moment as an image. The same demo file can
+render a tutorial GIF and the screenshots for the written docs. Snapshots add no time to the GIF.
+
+```yaml
+setup:
+  - open_sample: [napari, cells3d]
+  - snapshot: {path: docs/start.png, cursor: false}           # before anything happens
+steps:
+  - click: {button: Run, parent: My Widget}
+  - highlight: {widget: Run, parent: My Widget, label: "press Run"}
+  - snapshot: docs/run.png                                     # with caption, highlight, cursor
+  - snapshot: {path: docs/widget.png, parent: My Widget, padding: 8, overlays: false}
+```
+
+* `path`: `.png`, `.jpg`, `.webp`, `.bmp` or `.tif`, relative to the demo file.
+* `widget` / `parent` / `index` crop to a widget, or to a dock or app area given only as
+  `parent`. `padding` keeps a margin around it.
+* `overlays: false` leaves out captions, highlights, key badges and the cursor. `cursor: false`
+  leaves out only the cursor.
+* `scale` resizes the image. It is independent of the GIF's `output.scale`.
+
+Only `render` writes snapshots; `play` just logs them. The main `output` is always an animation:
+`output: {path: demo.png}` is an error that points to `snapshot`.
 
 ### Targeting widgets
 

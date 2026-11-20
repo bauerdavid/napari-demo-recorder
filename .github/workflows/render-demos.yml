@@ -76,6 +76,9 @@ jobs:
           path: |
             **/*.gif
             **/*.mp4
+            **/*.png
+            **/*.jpg
+            **/*.webp
           if-no-files-found: ignore
       - name: Pull request
         id: pr

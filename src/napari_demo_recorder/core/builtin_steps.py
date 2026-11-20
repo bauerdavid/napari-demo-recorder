@@ -29,6 +29,7 @@ from .catalogue import norm
 from .format import DemoError
 from .qt_compat import key_display
 from .steps import CORE_STEPS as S
+from .steps import TARGET_PROPS
 
 if TYPE_CHECKING:
     from .player import Player
@@ -146,6 +147,39 @@ def cursor(p: Player, params: dict):
         pt = p.points(params)[0]
         p._set_pos(pt)
     yield
+
+
+@S.step(
+    "snapshot",
+    params={
+        "path": {
+            "type": "string",
+            "description": "Image file to write (.png, .jpg, .webp, ...), relative to the demo file.",
+        },
+        "overlays": {
+            "type": "boolean",
+            "description": "Draw captions, highlights, key badges and the cursor (default true).",
+        },
+        "cursor": {"type": "boolean", "description": "Draw the cursor (default: as in 'style')."},
+        "widget": {
+            "type": "string",
+            "description": "Crop to this widget (same names as 'click'; a dock title crops to the dock).",
+        },
+        "parent": TARGET_PROPS["parent"],
+        "index": TARGET_PROPS["index"],
+        "padding": {"type": "integer", "minimum": 0, "description": "Pixels kept around the cropped widget."},
+        "scale": {"type": "number", "exclusiveMinimum": 0, "maximum": 4, "description": "Resize factor (default 1)."},
+    },
+    required=["path"],
+    shorthand="path",
+)
+def snapshot(p: Player, params: dict):
+    """Save the current view as a still image (PNG, JPEG, WebP), optionally cropped to a widget.
+
+    Takes no time in the GIF.  Only ``render`` writes the file.
+    """
+    p.save_snapshot(params)
+    yield from p.seconds(p.duration(params, 0.0))
 
 
 # ---------------------------------------------------------------------------- mouse
