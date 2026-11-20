@@ -77,6 +77,7 @@ Preview it live, without writing a file: `napari-demo-recorder play docs/annotat
 | `menu` | `[View, Scale Bar, Toggle Scale Bar]`, clicking through each sub-menu |
 | `caption`, `highlight`, `cursor`, `hold` | overlays and timing |
 | `snapshot` | save the current view as a still image (PNG, JPEG, WebP), optionally cropped to a widget; takes no time in the GIF |
+| `arrow`, `step_circle`, `box`, `clear_annotations` | callouts anchored to a widget or canvas region (see below) |
 | `wait` | wait for background work (`idle`), a time, or a Python condition; cut from the GIF by default |
 | `python` | escape hatch: inline code or `module:function` (gets `viewer`, `window`, ...) |
 | napari: `zoom`, `pan`, `rotate` | move the camera with the mouse: the wheel over a point, a drag (holding Space if the layer is in a painting mode), a drag in 3D |
@@ -86,6 +87,32 @@ Preview it live, without writing a file: `napari-demo-recorder play docs/annotat
 Every step also accepts `duration`, `speed`, `pause`, `capture: false` and `effect` (see below). To list everything:
 `napari-demo-recorder steps -v`. For editor autocompletion and for LLMs, the JSON schema is at
 `napari-demo-recorder schema -o demo.schema.json`.
+
+### Callouts: arrows, numbered steps, boxes
+
+```yaml
+style: {palette: warm}          # accent (default), warm, cyan-magenta, green, white, black-yellow
+steps:
+  - step_circle: {widget: sigma, parent: My Widget, label: Smooth, keep: true}      # 1
+  - step_circle: {widget: threshold, parent: My Widget, label: Threshold, keep: true} # 2
+  - arrow: {button: Run, parent: My Widget, from: left, label: "then run"}
+  - box: {canvas: [[40, 100], [110, 180]], label: "a dense cluster", fill: true, hold: false}
+  - click: {button: Run, parent: My Widget}       # runs while the box is still visible
+  - clear_annotations: {}
+```
+
+Callouts are **anchored**: they are re-measured on every frame, so an arrow keeps pointing at its
+button when the layout changes, and a `box` around canvas data follows zoom and pan. They take the
+same targets as `click` (widgets, napari names, `canvas:` points in data coordinates, `at:`).
+`label` adds narrative text, and `color` overrides the palette. By default a callout shows for
+`duration` seconds (1.8) while the demo waits. `hold: false` lets the next steps run while it shows,
+and `keep: true` keeps it until `clear_annotations`. Step circles number themselves (`number:` to
+set). Callouts only draw on the frames, so they are fine in strict mode.
+
+The callout set (arrows, numbered step circles, boxes with labels, high-contrast palettes) is
+inspired by the live annotations of
+[napari-demo-assistant](https://github.com/wulinteousa2-hash/napari-demo-assistant), which records
+napari demos as live screen captures.
 
 ### Only what a viewer could do (strict mode)
 
@@ -131,7 +158,7 @@ steps:
 * `path`: `.png`, `.jpg`, `.webp`, `.bmp` or `.tif`, relative to the demo file.
 * `widget` / `parent` / `index` crop to a widget, or to a dock or app area given only as
   `parent`. `padding` keeps a margin around it.
-* `overlays: false` leaves out captions, highlights, key badges and the cursor. `cursor: false`
+* `overlays: false` leaves out captions, highlights, callouts, key badges and the cursor. `cursor: false`
   leaves out only the cursor.
 * `scale` resizes the image. It is independent of the GIF's `output.scale`.
 

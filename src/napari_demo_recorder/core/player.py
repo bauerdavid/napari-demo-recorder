@@ -11,6 +11,7 @@ import random
 import sys
 import time
 from collections.abc import Callable, Iterator
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -20,10 +21,13 @@ from qtpy.QtWidgets import QApplication, QWidget
 
 from . import builtin_steps  # noqa: F401  (registers the core steps)
 from .adapter import Adapter, adapter_class
+from .annotations import DRAW_IN
+from .annotations import FADE as ANNOTATION_FADE
 from .capture import FrameStore, compose_frame
 from .encode import DEFAULT_MAX_SIZE, EncodeResult, encode_gif, encode_mp4
 from .format import DemoError, DemoSpec, Step, parse_size
 from .input import VirtualInput
+from .overlay import FADE as OVERLAY_FADE
 from .overlay import EffectBadge, Highlight, OverlayState, OverlayStyle, Ripple, paint_overlays
 from .selectors import (
     INTERNAL_PREFIX,
@@ -105,6 +109,7 @@ class Player:
         self.namespace: dict[str, Any] = {}
         self.current: Step | None = None
         self.strict = spec.strict
+        self.step_number = 0  # last number used by step_circle
         self.section = "setup"
         self._effect: EffectBadge | None = None
         #: still images written by ``snapshot`` steps (render mode)
@@ -293,15 +298,8 @@ class Player:
             return None
         QApplication.processEvents()
         self.adapter.prepare_frame()
-        style = self.overlay.style
-        prev_cursor = style.cursor
-        if "cursor" in params:
-            style.cursor = bool(params["cursor"])
-        try:
-            overlay = self.overlay if params.get("overlays", True) else None
-            frame = compose_frame(self.window, overlay, self.t)
-        finally:
-            style.cursor = prev_cursor
+        overlay = self._settled_overlay(params) if params.get("overlays", True) else None
+        frame = compose_frame(self.window, overlay, self.t)
         if any(k in params for k in ("widget", "parent")):
             frame = self._crop(frame, params)
         from PIL import Image
@@ -323,6 +321,30 @@ class Player:
         self.snapshots.append(path)
         self.log(f"  snapshot -> {path} ({img.width}x{img.height})")
         return path
+
+    def _settled_overlay(self, params: dict) -> OverlayState:
+        """A copy of the overlays with everything that is still fading or drawing in shown
+        complete: a still has no next frame, so a callout added with ``hold: false`` just before
+        the snapshot would otherwise be invisible.  Fade-outs are kept as they are."""
+        ov = self.overlay
+        settle = max(OVERLAY_FADE, ANNOTATION_FADE, DRAW_IN)
+
+        def back(t0: float) -> float:
+            return min(t0, self.t - settle)
+
+        style = replace(ov.style)
+        if "cursor" in params:
+            style.cursor = bool(params["cursor"])
+        return replace(
+            ov,
+            style=style,
+            ripples=list(ov.ripples),
+            keys=list(ov.keys),
+            caption_t0=back(ov.caption_t0),
+            highlights=[replace(h, t0=back(h.t0)) for h in ov.highlights],
+            effects=[replace(e, t0=back(e.t0)) for e in ov.effects],
+            annotations=[replace(a, t0=back(a.t0)) for a in ov.annotations],
+        )
 
     def _crop(self, frame, params: dict):
         if "widget" in params:
@@ -382,6 +404,36 @@ class Player:
         if off:
             p = p + QPoint(round(off[0]), round(off[1]))
         return p
+
+    def anchor(self, params: dict):
+        """A function returning the target's current rectangle (window coords) for annotations.
+
+        Widgets are looked up once and re-measured every frame; canvas points are re-mapped
+        every frame, so callouts follow layout and camera changes.
+        """
+        from qtpy.QtCore import QRectF
+
+        if any(k in params for k in ("canvas", "at", "path")):
+            def points_rect():
+                pts = self.points(params)
+                xs = [q.x() for q in pts]
+                ys = [q.y() for q in pts]
+                return QRectF(min(xs), min(ys), max(xs) - min(xs), max(ys) - min(ys))
+
+            points_rect()  # fail early (bad coordinates / missing layer)
+            return points_rect
+        widget = self.find(params)
+        window = self.window
+
+        def widget_rect():
+            try:
+                if not widget.isVisible():
+                    return None
+                return QRectF(window_rect(window, widget))
+            except RuntimeError:  # deleted
+                return None
+
+        return widget_rect
 
     def has_target(self, params: dict) -> bool:
         return any(k in params for k in ("button", "widget", "canvas", "at", "path", "class", "object_name", "tooltip"))

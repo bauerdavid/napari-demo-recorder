@@ -214,3 +214,21 @@ def test_still_image_output_override_fails_before_rendering(qapp, examples, tmp_
     with pytest.raises(DemoError, match="'snapshot' step"):
         Player(spec, log=None).run(tmp_path / "out.png")
     assert not (tmp_path / "out.png").exists()
+
+
+def test_snapshot_shows_callouts_that_just_started(qapp, examples, tmp_path):
+    # a callout with hold: false has not faded in yet when the snapshot is taken right after it
+    d = tmp_path.as_posix()
+    steps = (
+        "steps:\n"
+        "  - step_circle: {widget: Clear, hold: false}\n"
+        f"  - snapshot: {{path: '{d}/with.png', widget: Clear, padding: 20, cursor: false}}\n"
+        f"  - snapshot: {{path: '{d}/without.png', widget: Clear, padding: 20, overlays: false}}\n"
+    )
+    p = Player(_qt_spec(examples, steps), log=None)
+    p.run(tmp_path / "x.gif", close=False)
+    a = np.asarray(Image.open(tmp_path / "with.png").convert("RGB")).astype(int)
+    b = np.asarray(Image.open(tmp_path / "without.png").convert("RGB")).astype(int)
+    assert (np.abs(a - b).sum(-1) > 60).sum() > 100  # the numbered circle is drawn in full
+    assert p.overlay.style.cursor  # the snapshot's 'cursor: false' did not leak into the GIF
+    p.adapter.close()

@@ -15,20 +15,29 @@ setup:
   - python: showcase:setup           # sample image + the dummy "Blob finder" widget
 steps:
   - caption: "A demo is a YAML list of steps"
+  - step_circle: {widget: sigma, parent: Blob finder, keep: true, hold: false}
   - set: {widget: sigma, parent: Blob finder, value: 4.5}
+  - step_circle: {widget: threshold, parent: Blob finder, keep: true, hold: false}
   - set: {widget: threshold, parent: Blob finder, value: 0.35}
-  - click: {button: Detect, parent: Blob finder, highlight: true}
-  - hold: 0.5
+  - arrow: {button: Detect, parent: Blob finder, from: left, label: Detect, duration: 1.2}
+  - click: {button: Detect, parent: Blob finder}
+  - hold: 0.4
+  - clear_annotations: {}
   - caption: "napari's own buttons have stable names"
-  - click: {button: Create Labels, parent: napari, highlight: true}
+  - arrow: {button: Create Labels, parent: napari, from: right, label: Create Labels, hold: false, duration: 2}
+  - hold: 0.8
+  - click: {button: Create Labels, parent: napari}
   - key: P                           # paint mode - key presses are shown
   - set: {widget: brush size, parent: layer_controls, value: 12}
   - drag: {canvas: [[60, 60], [70, 110], [60, 160], [80, 200]], layer: blobs}
   - drag: {canvas: [[150, 70], [190, 110], [200, 160]], layer: blobs}
   - key: Ctrl+Z
-  - caption: "Layer list, menus and the camera, too"
+  - caption: "Callouts are anchored: they follow the UI and the camera"
+  - box: {canvas: [[40, 95], [112, 185]], layer: blobs, label: "dense cluster", keep: true, duration: 1.2}
   - toggle_visibility: blobs found
   - menu: [View, Scale Bar, [Toggle Scale Bar, Scale Bar Visible]]   # napari >= 0.6 / 0.5
-  - zoom: {factor: 2, canvas: [70, 120], layer: blobs}   # mouse wheel over the region
+  - zoom: {factor: 2, canvas: [76, 140], layer: blobs}   # mouse wheel; the box zooms along
+  - hold: 0.8
+  - clear_annotations: {}
   - caption: "Re-rendered in CI whenever your UI changes"
   - hold: 1.5
